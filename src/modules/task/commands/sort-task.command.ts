@@ -1,11 +1,17 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectModel } from '@nestjs/mongoose';
+import { Allow, IsNotEmpty, IsNumber } from 'class-validator';
 import { Model } from 'mongoose';
 import { Task, TaskDocument } from 'src/modules/task/schemas/task.schema';
 import TaskRepository from 'src/modules/task/task.repository';
 
 export class SortTaskCommand {
-  constructor(public activeId: number, public overId: number) {}
+  @IsNotEmpty()
+  @IsNumber()
+  activeId: number;
+  @IsNotEmpty()
+  @IsNumber()
+  overId: number;
 }
 
 @CommandHandler(SortTaskCommand)

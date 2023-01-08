@@ -1,72 +1,156 @@
-import { HttpService } from '@nestjs/axios';
+import { NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectModel } from '@nestjs/mongoose';
+import { IsBoolean, IsDateString, IsEnum, IsMongoId, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { BaseCommandHandler } from 'mangoo-core';
 import { Model } from 'mongoose';
-import { firstValueFrom } from 'rxjs';
 import SectionRepository from 'src/modules/section/section.repository';
-import { Task } from 'src/modules/task/entities/task.entity';
 import { TaskPriority } from 'src/modules/task/enums/task-priority.enum';
 import { TaskProgress } from 'src/modules/task/enums/task-progress.enum';
 import { Task as TaskSchema, TaskDocument } from 'src/modules/task/schemas/task.schema';
 import TaskRepository from 'src/modules/task/task.repository';
+import { TaskService } from 'src/modules/task/task.service';
 
 export class UpdateTaskCommand {
   id: number;
+
+  @IsNotEmpty()
   name: string;
-  assigneeId?: string;
-  startDate?: Date;
-  endDate?: Date;
-  projectId?: number;
+
+  @IsOptional()
+  @IsMongoId()
+  assigneeId: string | null = null;
+
+  @IsOptional()
+  @IsDateString()
+  startDate: Date | null = null;
+
+  @IsOptional()
+  @IsDateString()
+  endDate: Date | null = null;
+
+  @IsOptional()
+  @IsNumber()
+  projectId: number | null = null;
+
+  @IsOptional()
+  @IsNumber()
   sectionId: number;
-  priority?: TaskPriority;
-  progress?: TaskProgress;
-  description?: string;
+
+  @IsOptional()
+  @IsEnum(TaskPriority)
+  priority: TaskPriority | null = null;
+
+  @IsOptional()
+  @IsEnum(TaskProgress)
+  progress: TaskProgress | null = null;
+
+  @IsOptional()
+  @IsNumber()
+  parentId: number | null = null;
+
+  @IsOptional()
+  @IsNotEmpty()
+  description: string | null = null;
 }
 
 @CommandHandler(UpdateTaskCommand)
-export class UpdateTaskCommandHandler implements ICommandHandler<UpdateTaskCommand> {
+export class UpdateTaskCommandHandler extends BaseCommandHandler implements ICommandHandler<UpdateTaskCommand, number> {
   constructor(
-    private taskRepo: TaskRepository,
-    private httpService: HttpService,
     private sectionRepository: SectionRepository,
+    private taskRepository: TaskRepository,
+    private taskService: TaskService,
     @InjectModel(TaskSchema.name) private taskModel: Model<TaskDocument>,
-  ) {}
-  async execute(command: UpdateTaskCommand): Promise<any> {
-    const task = await this.taskRepo.findOneBy({ id: command.id });
-    if (task) {
-      task.name = command.name;
-      task.assigneeId = command.assigneeId;
-      task.startDate = command.startDate;
-      task.endDate = command.endDate;
-      task.projectId = command.projectId;
-      task.sectionId = command.sectionId;
-      task.priority = command.priority;
-      task.progress = command.progress;
-      task.description = command.description;
-      await this.taskRepo.save(task);
-      return this.updateTaskDoc(task);
-    }
-    throw new Error('Method not implemented.');
+  ) {
+    super();
   }
-  private async updateTaskDoc(task: Task) {
-    const { data } = await firstValueFrom(this.httpService.get(`http://localhost:3002/users/${task.assigneeId}`));
-    const assignee = { id: data._id, name: `${data.firstName} ${data.lastName}` };
-    const section = await this.sectionRepository.findOne({
-      where: { id: task.sectionId },
-    });
-    const project = task.projectId ? { id: task.projectId, name: 'Test Project' } : undefined;
-    const taskDoc = await this.taskModel.findOne({ id: task.id }).exec();
-    if (taskDoc && section) {
-      taskDoc.name = task.name;
-      taskDoc.assignee = assignee;
-      taskDoc.startDate = task.startDate;
-      taskDoc.endDate = task.endDate;
-      taskDoc.project = project;
-      taskDoc.section = { id: section.id, name: section.name };
-      taskDoc.priority = task.priority;
-      taskDoc.progress = task.progress;
-      taskDoc.description = task.description;
-      return taskDoc.save();
+  async execute(command: UpdateTaskCommand): Promise<number> {
+    const { id, sectionId, projectId, assigneeId, parentId } = command;
+
+    let task = await this.taskRepository.findOneBy({ id });
+    if (!task) throw new NotFoundException('Task not found');
+
+    if (parentId) {
+      const parent = await this.taskRepository.findOneBy({ id: parentId });
+      if (!parent) throw new NotFoundException('Parent not found');
     }
+
+    const section = await this.sectionRepository.findOneBy({ id: sectionId });
+    if (!section) throw new NotFoundException('Section not found');
+
+    const project = projectId ? await this.taskService.getProject(projectId) : undefined;
+    const assignee = assigneeId ? await this.taskService.getAssign(assigneeId) : undefined;
+
+    //Update task mysql
+    task = { ...task, ...command };
+    await this.taskRepository.save(task);
+
+    //Update task mongodb
+    await this.taskModel.findOneAndUpdate(
+      { id: task.id },
+      {
+        name: task.name,
+        assignee: { id: assignee?.id, firstName: assignee?.firstName, lastName: assignee?.lastName },
+        startDate: task.startDate,
+        endDate: task.endDate,
+        project: { id: project?.id, name: project?.name },
+        section: { id: section.id, name: section.name },
+        priority: task.priority,
+        progress: task.progress,
+        parentId: parentId,
+        description: task.description,
+      },
+    );
+
+    return task.id;
+  }
+}
+
+export class UpdateTaskPartial {
+  id: number;
+
+  @IsOptional()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  @IsBoolean()
+  isComplete: boolean;
+}
+
+@CommandHandler(UpdateTaskPartial)
+export class UpdateTaskPartialCommandHandler
+  extends BaseCommandHandler
+  implements ICommandHandler<UpdateTaskPartial, number>
+{
+  constructor(
+    private sectionRepository: SectionRepository,
+    private taskRepository: TaskRepository,
+    private taskService: TaskService,
+    @InjectModel(TaskSchema.name) private taskModel: Model<TaskDocument>,
+  ) {
+    super();
+  }
+  async execute(command: UpdateTaskPartial): Promise<number> {
+    const { id, name, isComplete } = command;
+    let task = await this.taskRepository.findOneBy({ id });
+    if (!task) throw new NotFoundException('Task not found');
+
+    //Update task mysql
+    task.name = name;
+    task.isComplete = isComplete;
+    await this.taskRepository.save(task);
+
+    //Update task mongodb
+    await this.taskModel.findOneAndUpdate(
+      { id: task.id },
+      {
+        name: task.name,
+        isComplete: isComplete,
+      },
+    );
+
+    return task.id;
   }
 }

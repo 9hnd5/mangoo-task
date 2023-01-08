@@ -5,12 +5,15 @@ import { SectionModule } from 'src/modules/section/section.module';
 import TaskModule from 'src/modules/task/task.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule, ContextModule } from 'mangoo-core';
 
 @Module({
   imports: [
     TaskModule,
     SectionModule,
-    MongooseModule.forRoot("mongodb://taskService:taskService@localhost:27017/task-service"),
+    ContextModule,
+    AuthModule,
+    MongooseModule.forRoot('mongodb://taskService:taskService@localhost:27017/task-service'),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: 'localhost',

@@ -7,7 +7,9 @@ export class Assignee {
   @Prop()
   id: string;
   @Prop()
-  name: string;
+  firstName: string;
+  @Prop()
+  lastName: string;
 }
 export class Project {
   @Prop()
@@ -29,30 +31,45 @@ export class Task {
   _id: ObjectId;
   @Prop()
   name: string;
-  @Prop()
+
+  @Prop({ unique: true })
   id: number;
-  @Prop()
-  assignee: Assignee;
-  @Prop()
-  startDate?: Date;
-  @Prop()
-  endDate?: Date;
-  @Prop()
-  project?: Project;
+
+  @Prop({ type: Assignee, default: null })
+  assignee: Assignee | null;
+
+  @Prop({ type: Project, default: null })
+  project: Project | null;
+
+  @Prop({ type: Date, default: null })
+  startDate: Date | null;
+
+  @Prop({ type: Date, default: null })
+  endDate: Date | null;
+
   @Prop()
   section: Section;
-  @Prop({ type: String, enum: TaskPriority })
-  priority?: TaskPriority;
-  @Prop({ type: String, enum: TaskProgress })
-  progress?: TaskProgress;
-  @Prop()
-  description?: string;
+
+  @Prop({ type: String, enum: [...Object.values(TaskProgress), null], default: null })
+  priority: TaskPriority | null;
+
+  @Prop({ type: String, enum: [...Object.values(TaskProgress), null], default: null })
+  progress: TaskProgress | null;
+
+  @Prop({ type: String, default: null })
+  description: string | null;
+
   @Prop()
   isPublic: boolean;
+
   @Prop()
   isComplete: boolean;
+
   @Prop()
   order: number;
+
+  @Prop({ type: Number, default: null })
+  parentId: number | null;
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
